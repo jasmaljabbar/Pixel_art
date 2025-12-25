@@ -30,6 +30,12 @@ export const navItems = [
     duration: 500
   },
   {
+    label: "Create Mosaic",
+    to: "create-mosaic",
+    offset: -100,
+    duration: 500
+  },
+  {
     label: "Contact Us",
     to: "contact",
     offset: -100,
@@ -76,7 +82,7 @@ export const testimonials = [
     image: user6,
     text: "",
     audio: foodfaiz,
-    
+
   },
 ];
 
