@@ -92,7 +92,7 @@ const Contact = () => {
                   </svg>
                 </a>
                 <a
-                  href="https://www.youtube.com/@JumanaJabbar-c2h"
+                  href="https://www.youtube.com/@JQ_TIPS2.0-q5k"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-red-500 hover:text-red-600"
