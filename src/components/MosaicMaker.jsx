@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Upload, RefreshCw, Download, Loader2, Grid3X3, Scissors, Check, X } from 'lucide-react';
+import React, { useState, useRef, useCallback } from 'react';
+import { Upload, RefreshCw, Download, Loader2, Grid3X3, Scissors, Check } from 'lucide-react';
 import Cropper from 'react-easy-crop';
 
 const RUBIKS_COLORS = [
@@ -11,7 +11,13 @@ const RUBIKS_COLORS = [
     { name: 'Green', r: 0, g: 155, b: 72, hex: '#009B48' },
 ];
 
-const TARGET_PIXELS = 3000; // Requested roughly 3000 pixels
+// Configuration for 20x25 cubes
+const CUBES_WIDTH = 20;
+const CUBES_HEIGHT = 25;
+const PIXELS_PER_CUBE = 3; // Standard 3x3 face
+const GRID_WIDTH = CUBES_WIDTH * PIXELS_PER_CUBE; // 60 pixels
+const GRID_HEIGHT = CUBES_HEIGHT * PIXELS_PER_CUBE; // 75 pixels
+const TOTAL_CUBES = CUBES_WIDTH * CUBES_HEIGHT; // 500
 
 const MosaicMaker = () => {
     const [rawImage, setRawImage] = useState(null); // original uploaded image
@@ -25,7 +31,6 @@ const MosaicMaker = () => {
     const [zoom, setZoom] = useState(1);
     const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
 
-    const [pixelCount, setPixelCount] = useState({ width: 0, height: 0, total: 0 });
     const fileInputRef = useRef(null);
 
     const handleImageUpload = (e) => {
@@ -56,10 +61,10 @@ const MosaicMaker = () => {
                 Math.pow(b - color.b, 2)
             );
 
-            // Penalize Green tones to minimize their usage as requested
-            // This makes green "expensive" to pick unless it's a very strong match
+            // Heavy penalty for Green to minimize/exclude it as requested
+            // Only picks green if it's an extremely perfect match
             if (color.name === 'Green') {
-                diff = diff * 1.5;
+                diff = diff * 3.0;
             }
 
             if (diff < minDiff) {
@@ -88,24 +93,22 @@ const MosaicMaker = () => {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
 
-        if (!ctx) {
-            return null;
-        }
-
-        canvas.width = image.width;
-        canvas.height = image.height;
-        ctx.drawImage(image, 0, 0);
-
-        const data = ctx.getImageData(
-            pixelCrop.x,
-            pixelCrop.y,
-            pixelCrop.width,
-            pixelCrop.height
-        );
+        if (!ctx) return null;
 
         canvas.width = pixelCrop.width;
         canvas.height = pixelCrop.height;
-        ctx.putImageData(data, 0, 0);
+
+        ctx.drawImage(
+            image,
+            pixelCrop.x,
+            pixelCrop.y,
+            pixelCrop.width,
+            pixelCrop.height,
+            0,
+            0,
+            pixelCrop.width,
+            pixelCrop.height
+        );
 
         return canvas.toDataURL('image/jpeg');
     };
@@ -142,23 +145,18 @@ const MosaicMaker = () => {
         const img = new Image();
         img.src = imgSrc;
         img.onload = () => {
-            // Calculate dimensions to maintain aspect ratio with target pixels
-            const items = TARGET_PIXELS;
-            const aspectRatio = img.width / img.height;
-            const cols = Math.round(Math.sqrt(items * aspectRatio));
-            const rows = Math.round(items / cols);
-
-            setPixelCount({ width: cols, height: rows, total: cols * rows });
-
             const canvas = document.createElement('canvas');
-            canvas.width = cols;
-            canvas.height = rows;
+            // Fixed grid size: 20x25 cubes * 3 pixels/cube = 60x75 pixels
+            canvas.width = GRID_WIDTH;
+            canvas.height = GRID_HEIGHT;
             const ctx = canvas.getContext('2d');
 
-            // Draw resized image
-            ctx.drawImage(img, 0, 0, cols, rows);
+            // Enhance contrast/brightness before processing to preserve details
+            ctx.filter = 'contrast(1.2) saturate(1.2)';
+            ctx.drawImage(img, 0, 0, GRID_WIDTH, GRID_HEIGHT);
+            ctx.filter = 'none';
 
-            const imageData = ctx.getImageData(0, 0, cols, rows);
+            const imageData = ctx.getImageData(0, 0, GRID_WIDTH, GRID_HEIGHT);
             const data = imageData.data;
 
             // Pixelate and map to colors
@@ -176,28 +174,36 @@ const MosaicMaker = () => {
 
             ctx.putImageData(imageData, 0, 0);
 
-            // Scale up for display (using nearest neighbor for pixel look)
+            // Scale up for display (10px per sticker)
             const displayCanvas = document.createElement('canvas');
-            displayCanvas.width = cols * 20; // 20px per 'cube/pixel' for visible grid
-            displayCanvas.height = rows * 20;
+            const SCALE = 10; // 10px per sticker
+            displayCanvas.width = GRID_WIDTH * SCALE;
+            displayCanvas.height = GRID_HEIGHT * SCALE;
             const dCtx = displayCanvas.getContext('2d');
             dCtx.imageSmoothingEnabled = false;
             dCtx.drawImage(canvas, 0, 0, displayCanvas.width, displayCanvas.height);
 
             // Add Grid lines
-            dCtx.strokeStyle = 'rgba(0,0,0,0.15)'; // Slightly softer grid
+            // Cube boundaries (every 3 stickers) should be thicker/darker
             dCtx.lineWidth = 1;
-            for (let x = 0; x <= displayCanvas.width; x += 20) {
-                dCtx.beginPath();
-                dCtx.moveTo(x, 0);
-                dCtx.lineTo(x, displayCanvas.height);
-                dCtx.stroke();
+
+            // Draw all sticker borders first
+            dCtx.strokeStyle = 'rgba(0,0,0,0.1)';
+            for (let x = 0; x <= displayCanvas.width; x += SCALE) {
+                dCtx.beginPath(); dCtx.moveTo(x, 0); dCtx.lineTo(x, displayCanvas.height); dCtx.stroke();
             }
-            for (let y = 0; y <= displayCanvas.height; y += 20) {
-                dCtx.beginPath();
-                dCtx.moveTo(0, y);
-                dCtx.lineTo(displayCanvas.width, y);
-                dCtx.stroke();
+            for (let y = 0; y <= displayCanvas.height; y += SCALE) {
+                dCtx.beginPath(); dCtx.moveTo(0, y); dCtx.lineTo(displayCanvas.width, y); dCtx.stroke();
+            }
+
+            // Draw Cube borders (every 3 stickers * SCALE)
+            dCtx.strokeStyle = 'rgba(0,0,0,0.5)';
+            const CUBE_SIZE = 3 * SCALE;
+            for (let x = 0; x <= displayCanvas.width; x += CUBE_SIZE) {
+                dCtx.beginPath(); dCtx.moveTo(x, 0); dCtx.lineTo(x, displayCanvas.height); dCtx.stroke();
+            }
+            for (let y = 0; y <= displayCanvas.height; y += CUBE_SIZE) {
+                dCtx.beginPath(); dCtx.moveTo(0, y); dCtx.lineTo(displayCanvas.width, y); dCtx.stroke();
             }
 
             setProcessedImage(displayCanvas.toDataURL());
@@ -217,8 +223,7 @@ const MosaicMaker = () => {
                     Create Your Mosaic
                 </h2>
                 <p className="text-neutral-400 max-w-2xl mx-auto text-lg">
-                    Upload, crop, and transform your photo into a Rubik's Cube masterpiece.
-                    Optimized for ~{TARGET_PIXELS} cubes.
+                    Turn your photo into a {TOTAL_CUBES} Rubik's Cube masterpiece ({CUBES_WIDTH}x{CUBES_HEIGHT} cubes).
                 </p>
             </div>
 
@@ -268,20 +273,20 @@ const MosaicMaker = () => {
                     {processedImage && !isCropping && (
                         <div className="bg-neutral-800/50 p-4 rounded-xl border border-neutral-800 animate-fade-in">
                             <h4 className="text-neutral-300 font-medium mb-3 flex items-center gap-2">
-                                <Grid3X3 size={18} className="text-orange-500" /> Mosaic Stats
+                                <Grid3X3 size={18} className="text-orange-500" /> Mosaic Specs
                             </h4>
                             <div className="space-y-2 text-sm text-neutral-400">
                                 <div className="flex justify-between">
-                                    <span>Grid Size:</span>
-                                    <span className="text-neutral-200">{pixelCount.width} x {pixelCount.height}</span>
+                                    <span>Dimensions:</span>
+                                    <span className="text-neutral-200">{CUBES_WIDTH} x {CUBES_HEIGHT} cubes</span>
                                 </div>
                                 <div className="flex justify-between">
                                     <span>Total Cubes:</span>
-                                    <span className="text-neutral-200">{pixelCount.total}</span>
+                                    <span className="text-neutral-200">{TOTAL_CUBES}</span>
                                 </div>
                                 <div className="flex justify-between">
-                                    <span>Colors Used:</span>
-                                    <span className="text-neutral-200">Standard Rubik's Palette</span>
+                                    <span>Resolution:</span>
+                                    <span className="text-neutral-200">{GRID_WIDTH}x{GRID_HEIGHT} pixels</span>
                                 </div>
                             </div>
                         </div>
@@ -298,17 +303,16 @@ const MosaicMaker = () => {
                                     image={rawImage}
                                     crop={crop}
                                     zoom={zoom}
-                                    aspect={1} // Optional: force square or free? Keeping free allows more creativity, but maybe users want square? Let's leave it free or standard. Removing aspect prop makes it free form. 
-                                    // If we want 4:3 or similar we can Add it. Let's stick to free form or the image aspect.
-                                    // Actually, let's allow free cropping. 
+                                    aspect={CUBES_WIDTH / CUBES_HEIGHT} // Enforce 20:25 (0.8) aspect ratio
                                     onCropChange={setCrop}
                                     onZoomChange={setZoom}
                                     onCropComplete={onCropComplete}
+                                    objectFit="contain"
                                 />
                             </div>
                             <div className="p-4 bg-neutral-800 flex justify-between items-center border-t border-neutral-700">
                                 <span className="text-neutral-400 text-sm flex items-center gap-2">
-                                    <Scissors size={16} /> Crop your image
+                                    <Scissors size={16} /> Crop to fit {CUBES_WIDTH}x{CUBES_HEIGHT} grid
                                 </span>
                                 <div className="flex gap-3">
                                     <button
